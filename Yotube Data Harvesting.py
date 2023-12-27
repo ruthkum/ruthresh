@@ -47,25 +47,25 @@ def get_video_info(channel_id):
 
     return [], None  # Return empty list and None for playlist ID
 
-# Function to retrieve video comments for a video
-def get_video_comments(video_id):
-    comments_url = f"https://www.googleapis.com/youtube/v3/commentThreads?key={api_key}&part=snippet&videoId={video_id}"
-    response = requests.get(comments_url)
-    data = response.json()
-    return data
-
 # Function to retrieve video statistics (views and duration)
 def get_video_statistics(video_id):
     video_url = f"https://www.googleapis.com/youtube/v3/videos?key={api_key}&part=contentDetails,statistics&id={video_id}"
     response = requests.get(video_url)
     data = response.json()
-    return data.get("items", [])[0]["statistics"], data.get("items", [])[0]["contentDetails"] if data.get("items") else None
+
+    try:
+        statistics = data.get("items", [])[0]["statistics"]
+        content_details = data.get("items", [])[0]["contentDetails"]
+        return statistics, content_details
+    except IndexError:
+        return None, None  # Return None values to handle the case when the list is empty
 
 # Loop through the list of channel IDs
 for channel_id in channel_ids:
     channel_info = get_channel_info(channel_id)
     video_info, playlist_id = get_video_info(channel_id)  # Fetch video info and playlist ID
 
+    # Process channel information
     if "items" in channel_info and len(channel_info["items"]) > 0:
         channel_data = channel_info["items"][0]
         channel_name = channel_data["snippet"]["title"]
@@ -83,6 +83,7 @@ for channel_id in channel_ids:
             "Total Video Count": total_videos,
         })
 
+    # Process video information
     if video_info:
         for video in video_info:
             video_id = video["snippet"]["resourceId"]["videoId"]
@@ -94,19 +95,16 @@ for channel_id in channel_ids:
             published_month = published_date.strftime("%B %Y")
 
             statistics, content_details = get_video_statistics(video_id)
+            
+            # Handle None values from get_video_statistics
             views = statistics.get("viewCount", 0) if statistics else 0
             duration = content_details.get("duration", "PT0S") if content_details else "PT0S"
-
-            comments_data = get_video_comments(video_id)
-            comments = [item["snippet"]["topLevelComment"]["snippet"]["textDisplay"] for item in comments_data.get("items", [])]
 
             video_data_list.append({
                 "Video ID": video_id,
                 "Likes": likes,
-                "Comments": comments,
-                "Playlist ID": playlist_id,
-                "Published At": published_at,
                 "Author": author,
+                "Published At": published_at,
                 "Published Date": published_date.strftime("%Y-%m-%d"),
                 "Published Month": published_month,
                 "Views": views,
@@ -126,15 +124,7 @@ combined_df = combined_df.dropna()
 # Reset the indices using df.reset_index()
 combined_df = combined_df.reset_index(drop=True)
 
-
-# Display the combined DataFrame as a table
-pd.set_option("display.max_rows", None)
-pd.set_option("display.max_columns", None)
-pd.set_option("display.width", None)
-
 # Display the combined DataFrame
-#print("Combined Data:")
-#display(combined_df)
 
 print("Combined Data:")
 st.write(combined_df)
