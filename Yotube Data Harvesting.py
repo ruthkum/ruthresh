@@ -1,7 +1,10 @@
+
 import requests
 import pandas as pd
-import streamlit as st
 from datetime import datetime
+from pymongo import MongoClient
+import mysql.connector
+import streamlit as st
 
 # API key
 api_key = "AIzaSyCBF8YBbg4uvH33iDZAcMVS3xPIyUoXRJk"
@@ -18,7 +21,6 @@ channel_ids = [
     "UCpOnZdJQxa5vyR5dNtIoNjg",
     "UC-j7LP4at37y3uNTdWLq-vQ",
     "UCs3DSHP8I6rF9JASQNwf9sQ",
-    
 ]
 
 # Lists to store the data
@@ -60,6 +62,29 @@ def get_video_statistics(video_id):
     except IndexError:
         return None, None  # Return None values to handle the case when the list is empty
 
+# Function to retrieve video comments
+def get_video_comments(video_id):
+    comments_url = f"https://www.googleapis.com/youtube/v3/commentThreads?key={api_key}&part=snippet&maxResults=10&videoId={video_id}"
+    response = requests.get(comments_url)
+    data = response.json()
+
+    comments = []
+    for item in data.get("items", []):
+        comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+        comments.append(comment)
+
+    return comments
+
+# Connect to MySQL
+mysql_db = mysql.connector.connect(
+    host='localhost',
+    user='root',
+    password='Shine@123',
+    database='youtubedb1',
+    auth_plugin="mysql_native_password"
+)
+mysql_cursor = mysql_db.cursor()
+
 # Loop through the list of channel IDs
 for channel_id in channel_ids:
     channel_info = get_channel_info(channel_id)
@@ -95,10 +120,16 @@ for channel_id in channel_ids:
             published_month = published_date.strftime("%B %Y")
 
             statistics, content_details = get_video_statistics(video_id)
-            
+            comments = get_video_comments(video_id)
+
+            # Include only the first comment in the DataFrame
+            first_comment = comments[0] if comments else None
+
             # Handle None values from get_video_statistics
             views = statistics.get("viewCount", 0) if statistics else 0
             duration = content_details.get("duration", "PT0S") if content_details else "PT0S"
+
+            comments = get_video_comments(video_id)
 
             video_data_list.append({
                 "Video ID": video_id,
@@ -109,7 +140,16 @@ for channel_id in channel_ids:
                 "Published Month": published_month,
                 "Views": views,
                 "Duration": duration,
+                "Comments": comments,
+                "Playlist ID": playlist_id,  # New field for Playlist ID
             })
+
+import requests
+import pandas as pd
+from datetime import datetime
+from pymongo import MongoClient
+
+# ... (Previous code remains unchanged)
 
 # Create Pandas DataFrames
 channel_df = pd.DataFrame(channel_data_list)
@@ -125,13 +165,12 @@ combined_df = combined_df.dropna()
 combined_df = combined_df.reset_index(drop=True)
 
 # Display the combined DataFrame
-
 print("Combined Data:")
-st.write(combined_df)
+print(combined_df)
 
-# MONGODB INSERT :
+#####################################################
 
-from pymongo import MongoClient
+# MONGODB INSERT:
 
 # MongoDB Atlas connection string
 client = MongoClient('mongodb+srv://RUTHRESH:ruth123@cluster0.w4tiynw.mongodb.net/?retryWrites=true&w=majority')
@@ -143,12 +182,17 @@ mongo_collection = mongo_db["youtube_demo1"]
 # Convert combined DataFrame to a list of dictionaries
 data_to_insert = combined_df.to_dict(orient='records')
 
-# Insert data into MongoDB collection
-mongo_collection.insert_many(data_to_insert)
+# Check if data_to_insert is not empty before inserting into MongoDB
+if data_to_insert:
+    # Insert data into MongoDB collection
+    mongo_collection.insert_many(data_to_insert)
+    print("Data inserted into MongoDB Atlas collection.")
+else:
+    print("No data to insert into MongoDB.")
 
-print("Data inserted into MongoDB Atlas collection.")
-
-# MYSQL CHANNEL DETAILS :
+##############################################################
+    
+# MYSQL CHANNEL DETAILS:
 
 from pymongo import MongoClient
 import mysql.connector
@@ -187,8 +231,11 @@ try:
     # Fetch data from MongoDB
     mongo_data = collection.find()
 
-    # Insert data into MySQL table
+    # Print fetched data for debugging
     for record in mongo_data:
+        print(record)
+
+        # Insert data into MySQL table
         channel_name = record.get("Channel Name")
         channel_description = record.get("Channel Description")
         channel_id = record.get("Channel ID")
@@ -211,15 +258,20 @@ try:
 except Exception as e:
     print(f"Error: {e}")
 
-# MYSQL VIDEO DETAILS :
-
+#############################################################
+    
+# MYSQL VIDEO DETAILS:
+    
+import requests
+import pandas as pd
+from datetime import datetime
 from pymongo import MongoClient
 import mysql.connector
-from datetime import datetime
+import numpy as np
+
+
 
 # Connect to MongoDB
-username = 'RUTHRESH'
-password = 'ruth123'
 client = MongoClient('mongodb+srv://RUTHRESH:ruth123@cluster0.w4tiynw.mongodb.net/?retryWrites=true&w=majority')
 
 try:
@@ -266,7 +318,16 @@ try:
         likes = video.get("Likes")
         comments = ", ".join(video.get("Comments", []))
         playlist_id = video.get("Playlist ID")
-        published_at = datetime.strptime(video.get("Published At"), "%Y-%m-%dT%H:%M:%SZ")
+
+        # Check and replace NaN values with None
+        for key, value in video.items():
+            if isinstance(value, np.ndarray) and np.isnan(value).any():
+                video[key] = None
+
+        # Check if 'Published At' is not None before parsing
+        published_at_str = video.get("Published At")
+        published_at = datetime.strptime(published_at_str, "%Y-%m-%dT%H:%M:%SZ") if published_at_str else None
+
         author = video.get("Author")
         published_date = video.get("Published Date")
         published_month = video.get("Published Month")
@@ -289,83 +350,41 @@ try:
 except Exception as e:
     print(f"Error: {e}")
 
-# STREAMLIT :
-
-import streamlit as st
-import mysql.connector
+###########################################################
+    
+    
 import pandas as pd
-
-# Function to fetch channel info from MySQL
-def fetch_channel_info(mysql_cursor):
-    mysql_cursor.execute("SELECT * FROM channel_info")
-    channel_data = mysql_cursor.fetchall()
-    return channel_data
-
-# Function to fetch video info from MySQL
-def fetch_video_info(mysql_cursor):
-    mysql_cursor.execute("SELECT * FROM videos_info")
-    video_data = mysql_cursor.fetchall()
-    return video_data
-
-def main():
-    # Connect to MySQL using a context manager
-    with mysql.connector.connect(
-        host='localhost',
-        user='root',
-        password='Shine@123',
-        database='youtubedb1',
-        auth_plugin="mysql_native_password"
-    ) as mysql_db:
-        mysql_cursor = mysql_db.cursor()
-
-        # Get channel info data
-        channel_data = fetch_channel_info(mysql_cursor)
-        channel_df = pd.DataFrame(channel_data, columns=["Channel Name", "Channel Description", "Channel ID", "Subscribers", "Total Video Count"])
-
-        # Get video info data
-        video_data = fetch_video_info(mysql_cursor)
-        video_df = pd.DataFrame(video_data, columns=["Channel Name", "Channel ID", "Video ID", "Likes", "Comments", "Playlist ID", "Published At", "Author", "Published Date", "Published Month", "Views", "Duration"])
-
-        # Streamlit code to display channel info
-        st.title('YouTube Data')  # Updated title
-        if st.button('Show Channel Info'):
-            st.write(channel_df)
-
-        # Streamlit code to display video info
-        if st.button('Show Video Info'):
-            st.write(video_df)
-
-if __name__ == "__main__":
-    main()
-
-# MONGODB TO STEAMLIT :
-
-import streamlit as st
 from pymongo import MongoClient
-import pandas as pd
 
-# Function to retrieve data from MongoDB
 def get_data_from_mongodb(collection_name):
-    # MongoDB Atlas connection string
+    # Connect to MongoDB
     client = MongoClient('mongodb+srv://RUTHRESH:ruth123@cluster0.w4tiynw.mongodb.net/?retryWrites=true&w=majority')
 
-    # Access the database and collection
-    mongo_db = client["youtube_db"]
-    mongo_collection = mongo_db[collection_name]
+    try:
+        # Access the database and collection
+        db = client["youtube_db"]
+        collection = db[collection_name]
 
-    # Retrieve data from MongoDB collection
-    cursor = mongo_collection.find()
+        # Fetch data from MongoDB
+        cursor = collection.find()
+        data = list(cursor)
 
-    # Convert data to DataFrame
-    df = pd.DataFrame(list(cursor))
+        # Create a DataFrame from the MongoDB data
+        mongo_df = pd.DataFrame(data)
 
-    # Close MongoDB connection
-    client.close()
+        return mongo_df
 
-    return df
+    except Exception as e:
+        print(f"Error: {e}")
+        return pd.DataFrame()  # Return an empty DataFrame in case of an error
+
+    finally:
+        client.close()
 
 # Streamlit app
 def main():
+    
+    st.title("YOUTUBE DATA HARVESTING AND WAREHOUSING")
     st.title("Display MongoDB Data with Streamlit")
 
     # Display MongoDB data button
@@ -384,6 +403,7 @@ def main():
 if __name__ == "__main__":
     main()
 
+######################################################################
 
 
 # Full question answer query  (1 to 10):
@@ -435,6 +455,10 @@ def main():
         "3. What are the top 10 most viewed videos and their respective channels?":
             "SELECT Video_ID, Views, Channel_Name FROM videos_info ORDER BY Views DESC LIMIT 10",
 
+        "4. How many Comments were made on each video, and what are their corresponding video names?":
+            "SELECT Video_ID, COUNT(Comments) AS 'Number of Comments' FROM videos_info GROUP BY Video_ID",
+
+
         "5. Which videos have the highest number of likes, and what are their corresponding channel names?":
             "SELECT videos_info.Channel_Name AS 'Channel Name', videos_info.Video_ID AS 'Video ID', videos_info.Likes AS 'Likes' FROM videos_info ORDER BY Likes DESC LIMIT 5",
         
@@ -443,7 +467,10 @@ def main():
         
         "8. What are the names of all the channels that have published videos in the year 2023?":
             "SELECT DISTINCT videos_info.Channel_Name AS 'Channel Name' FROM videos_info WHERE YEAR(videos_info.Published_Date) = 2023",
-    
+        
+        "9. What is the average duration of all videos in each channel, and what are their corresponding channel names?":
+            "SELECT Channel_Name as ChannelName, AVG(Duration) AS average_duration FROM videos_info GROUP BY Channel_Name",
+
         "10. Which videos have the highest number of comments, and what are their corresponding channel names?":
             "SELECT videos_info.Channel_Name AS 'Channel Name', videos_info.Video_ID AS 'Video ID', videos_info.Comments AS 'Comments' FROM videos_info ORDER BY LENGTH(videos_info.Comments) DESC LIMIT 5",
     }
@@ -462,3 +489,283 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+##############################################################################
+    
+###  YouTube Channel Details Lookup
+
+import streamlit as st
+import mysql.connector
+import pandas as pd
+
+# Function to connect to MySQL database
+def connect_to_mysql():
+    return mysql.connector.connect(
+        host='localhost',
+        user='root',
+        password='Shine@123',
+        database='youtubedb1',
+        auth_plugin="mysql_native_password"
+    )
+
+# Function to execute SQL queries and display results
+def execute_query(query, params=None):
+    try:
+        mysql_db = connect_to_mysql()
+        mysql_cursor = mysql_db.cursor()
+
+        if params:
+            mysql_cursor.execute(query, params)
+        else:
+            mysql_cursor.execute(query)
+
+        result = mysql_cursor.fetchall()
+
+        mysql_cursor.close()
+        mysql_db.close()
+
+        return result
+
+    except mysql.connector.Error as e:
+        st.error(f"Error executing query: {e}")
+        return None
+
+# Function to fetch channel details based on channel ID
+def get_channel_details(channel_id):
+    query_channel_details = """
+        SELECT * FROM channel_info
+        WHERE Channel_ID = %s
+        LIMIT 1
+    """
+    params = (channel_id,)
+    return execute_query(query_channel_details, params)
+
+# Function to fetch video details based on channel ID
+def get_video_details(channel_id):
+    query_video_details = """
+        SELECT Video_ID, Likes, Comments, Playlist_ID, Published_At, Author,
+               Published_Date, Published_Month, Views, Duration
+        FROM videos_info
+        WHERE Channel_ID = %s
+        LIMIT 1
+    """
+    params = (channel_id,)
+    return execute_query(query_video_details, params)
+
+# Streamlit app
+def main():
+    st.title("YouTube Channel Details Lookup")
+
+    # User input for channel ID
+    channel_id_input_key = "channel_id_input"
+    channel_id_input = st.text_input("Enter Channel ID:", key=channel_id_input_key)
+
+    # Button to fetch and display channel details
+    show_channel_details_button_key = "show_channel_details_button"
+    if st.button("Show Channel Details", key=show_channel_details_button_key):
+        # Fetch and display channel details
+        result_channel_details = get_channel_details(channel_id_input)
+
+        if result_channel_details:
+            # Display Channel Details in a DataFrame
+            channel_df = pd.DataFrame(result_channel_details, columns=["Channel Name", "Channel Description", "Channel ID", "Subscribers", "Total Video Count"])
+            st.header("Channel Details:")
+            st.write(channel_df)
+
+            # Fetch and display video details
+            result_video_details = get_video_details(channel_id_input)
+
+            if result_video_details:
+                # Display Video Details in a DataFrame
+                video_df = pd.DataFrame(result_video_details, columns=["Video_ID", "Likes", "Comments", "Playlist_ID", "Published_At", "Author", "Published_Date", "Published_Month", "Views", "Duration"])
+                st.header("Video Details:")
+                st.write(video_df)
+            else:
+                st.write(f"No video details found for Channel ID: {channel_id_input}.")
+        else:
+            st.write(f"No channel details found for Channel ID: {channel_id_input}.")
+
+if __name__ == "__main__":
+    main()
+
+
+#################################################
+
+######  MONGODB SUCCESFULL :
+    
+import requests
+from datetime import datetime
+from pymongo import MongoClient
+import streamlit as st
+
+# Function to retrieve channel information from YouTube API
+def get_channel_info(channel_id):
+    api_key = "AIzaSyCBF8YBbg4uvH33iDZAcMVS3xPIyUoXRJk"
+    channel_url = f"https://www.googleapis.com/youtube/v3/channels?key={api_key}&part=snippet,statistics,brandingSettings&id={channel_id}"
+    response = requests.get(channel_url)
+    data = response.json()
+    return data
+
+# Function to connect to MongoDB
+def connect_to_mongodb():
+    return MongoClient('mongodb+srv://RUTHRESH:ruth123@cluster0.w4tiynw.mongodb.net/?retryWrites=true&w=majority')
+
+# Function to insert data into MongoDB
+def insert_into_mongodb(collection, data):
+    try:
+        collection.insert_one(data)
+        st.success("MongoDB insertion successful!")
+    except Exception as e:
+        st.error(f"Error inserting data into MongoDB: {e}")
+
+# Streamlit app
+def main():
+    st.title("MONGODB INSERT")
+
+    # User input for channel ID
+    channel_id_input = st.text_input("Enter Channel ID:")
+
+    # Button to fetch and display channel details
+    if st.button("Show Channel Details"):
+        # Fetch channel details from YouTube API
+        channel_info = get_channel_info(channel_id_input)
+
+        if "items" in channel_info and len(channel_info["items"]) > 0:
+            # Display Channel Details
+            channel_data = channel_info["items"][0]
+            channel_name = channel_data["snippet"]["title"]
+            channel_description = channel_data["brandingSettings"]["channel"].get("description", "Description not available")
+            subscribers = channel_data["statistics"]["subscriberCount"]
+            total_videos = channel_data["statistics"]["videoCount"]
+            PublishedAt = channel_data['snippet']['publishedAt']
+            Published_Date = channel_data['snippet']['publishedAt']
+
+            st.header("Channel Details:")
+            st.write(f"Channel Name: {channel_name}")
+            st.write(f"Channel Description: {channel_description}")
+            st.write(f"Subscribers: {subscribers}")
+            st.write(f"Total Video Count: {total_videos}")
+            st.write(f"Published At: {PublishedAt}")
+            st.write(f"Published Date: {Published_Date}")
+
+            # Connect to MongoDB and insert data
+            mongo_client = connect_to_mongodb()
+            mongo_db = mongo_client["youtube_db"]
+            mongo_collection = mongo_db["youtube_channel_data"]
+
+            # Create a dictionary with channel details
+            channel_data_mongo = {
+                "Channel Name": channel_name,
+                "Channel Description": channel_description,
+                "Channel ID": channel_id_input,
+                "Subscribers": subscribers,
+                "Total Video Count": total_videos,
+                "Published At": PublishedAt,
+                "Published Date": Published_Date
+            }
+
+            # Button to insert data into MongoDB
+            if st.button("Insert into MongoDB"):
+                insert_into_mongodb(mongo_collection, channel_data_mongo)
+
+            # Close MongoDB connection
+            mongo_client.close()
+
+        else:
+            st.write(f"No channel details found for Channel ID: {channel_id_input}.")
+
+    # Button to display "MongoDB insert successfully" message
+    if st.button("Insert Success Message"):
+        st.success("MongoDB insert successfully!")
+
+if __name__ == "__main__":
+    main()
+
+############################################
+########  MYSQL SUCCESSFULL :
+    
+import streamlit as st
+import mysql.connector
+from pymongo import MongoClient
+import uuid
+import datetime
+
+# Function to insert data into MySQL
+def insert_into_mysql(cursor, data):
+    try:
+        # Convert '2023-11-19T17:42:13Z' to '2023-11-19 17:42:13'
+        published_at_str = data["Published At"].replace("T", " ").replace("Z", "")
+        published_at = datetime.datetime.strptime(published_at_str, "%Y-%m-%d %H:%M:%S")
+
+        query = "INSERT INTO your_table_name (channel_name, channel_description, channel_id, subscribers, total_videos, published_at, published_date) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        cursor.execute(query, (data["Channel Name"], data["Channel Description"], data["Channel ID"], data["Subscribers"], data["Total Video Count"], published_at, data["Published Date"]))
+        st.success("MySQL insert successfully!")
+    except Exception as e:
+        st.error(f"Error inserting data into MySQL: {e}")
+
+# Connect to MongoDB
+client = MongoClient('mongodb+srv://RUTHRESH:ruth123@cluster0.w4tiynw.mongodb.net/?retryWrites=true&w=majority')
+db = client["youtube_db"]
+collection = db["youtube_demo1"]
+
+# Connect to MySQL
+connection = mysql.connector.connect(
+    host='localhost',
+    user='root',
+    password='Shine@123',
+    database='youtubedb1',
+    auth_plugin="mysql_native_password"
+)
+
+# Create a cursor object
+cursor = connection.cursor()
+
+# SQL query to create the table
+create_table_query = """
+CREATE TABLE IF NOT EXISTS your_table_name (
+    channel_name VARCHAR(255),
+    channel_description TEXT,
+    channel_id VARCHAR(255),
+    subscribers INT,
+    total_videos INT,
+    published_at DATETIME,
+    published_date DATE
+);
+"""
+
+# Execute the query
+cursor.execute(create_table_query)
+
+# Commit the changes
+connection.commit()
+
+# Streamlit app
+def main():
+    st.title("MySQL Insert App")
+
+    # Initialize st.session_state
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
+    # User input for channel ID
+    channel_id_input = st.text_input("Enter Channel ID:", key=f"channel_id_input_{st.session_state.session_id}")
+
+    # Button to insert data into MySQL
+    if st.button("Insert into MySQL"):
+        # Fetch data from MongoDB for the given channel ID
+        mongo_data = collection.find_one({"Channel ID": channel_id_input})
+
+        if mongo_data:
+            # Insert data into MySQL
+            insert_into_mysql(cursor, mongo_data)
+
+        else:
+            st.error("No data found for the given Channel ID in MongoDB.")
+
+if __name__ == "__main__":
+    main()
+
+# Close MySQL connection
+cursor.close()
+connection.close()
