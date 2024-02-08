@@ -144,13 +144,6 @@ for channel_id in channel_ids:
                 "Playlist ID": playlist_id,  # New field for Playlist ID
             })
 
-import requests
-import pandas as pd
-from datetime import datetime
-from pymongo import MongoClient
-
-# ... (Previous code remains unchanged)
-
 # Create Pandas DataFrames
 channel_df = pd.DataFrame(channel_data_list)
 video_df = pd.DataFrame(video_data_list)
