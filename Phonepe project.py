@@ -602,7 +602,78 @@ mysql_db.close()
 print("Data successfully inserted into MySQL.")
 
 
-##################################################
+##################################################  10 Quries
+
+import streamlit as st
+import mysql.connector
+import pandas as pd
+import requests
+import json
+import plotly.express as px
+
+# Function to execute MySQL queries and return a DataFrame
+def execute_query(query):
+    mysql_db = mysql.connector.connect(
+        host='localhost',
+        user='root',
+        password='Shine@123',
+        database='phonepe',
+        auth_plugin="mysql_native_password"
+    )
+
+    mysql_cursor = mysql_db.cursor()
+    mysql_cursor.execute(query)
+    data = mysql_cursor.fetchall()
+    columns = [i[0] for i in mysql_cursor.description]
+    df = pd.DataFrame(data, columns=columns)
+    mysql_db.close()
+    return df
+
+# Streamlit app
+st.title("PhonePe Analytics Dashboard")
+
+# Queries for 10 questions
+queries = {
+    "Top Brands Of Mobiles Used": "SELECT Brands, SUM(Count) AS TotalCount FROM aggregated_user GROUP BY Brands ORDER BY TotalCount DESC LIMIT 10",
+    "States With Lowest Transaction Amount": "SELECT State, MIN(Transaction_amount) AS LowestAmount FROM AGGREGATED_TRANSACTION GROUP BY State",
+    "Districts With Highest Transaction Amount": "SELECT District, MAX(Amount) AS HighestAmount FROM MAP_TRANSACTION GROUP BY District ORDER BY HighestAmount DESC LIMIT 1",
+    "Top 10 Districts With Lowest Transaction Amount": "SELECT District, MIN(Amount) AS LowestAmount FROM MAP_TRANSACTION GROUP BY District ORDER BY LowestAmount ASC LIMIT 10",
+    "Top 10 States With AppOpens": "SELECT State, SUM(AppOpens) AS TotalAppOpens FROM map_user GROUP BY State ORDER BY TotalAppOpens DESC LIMIT 10",
+    "Least 10 States With AppOpens": "SELECT State, SUM(AppOpens) AS TotalAppOpens FROM map_user GROUP BY State ORDER BY TotalAppOpens ASC LIMIT 10",
+    "States With Lowest Transaction Count": "SELECT State, MIN(Transaction_count) AS LowestCount FROM top_transaction GROUP BY State",
+    "States With Highest Transaction Count": "SELECT State, MAX(Transaction_count) AS HighestCount FROM top_transaction GROUP BY State",
+    "States With Highest Transaction Amount": "SELECT State, MAX(Transaction_amount) AS HighestAmount FROM top_transaction GROUP BY State",
+    "Top 50 Districts With Lowest Transaction Amount": "SELECT District, MIN(amount) AS LowestAmount FROM MAP_TRANSACTION GROUP BY District ORDER BY LowestAmount ASC LIMIT 50"
+}
+
+# Choose the question to display
+selected_question = st.selectbox("Select a question:", list(queries.keys()))
+
+# Display result based on selected question
+result_df = execute_query(queries[selected_question])
+st.dataframe(result_df)
+
+# Visualization button for Line Plot, Pie Chart, and Bar Chart
+if st.button("Show Visualizations"):
+    # Display the Pie Chart
+    st.subheader("Pie Chart Visualization")
+    fig_pie = px.pie(result_df, values=result_df.columns[1], names=result_df.columns[0], title=selected_question)
+    st.plotly_chart(fig_pie)
+
+    # Display the Bar Chart
+    st.subheader("Bar Chart Visualization")
+    fig_bar = px.bar(result_df, x=result_df.columns[0], y=result_df.columns[1], title=selected_question)
+    st.plotly_chart(fig_bar)
+
+    # Display the Line Graph
+    st.subheader("Line Graph Visualization")
+    fig_line = px.line(result_df, x=result_df.columns[0], y=result_df.columns[1], title=selected_question)
+    st.plotly_chart(fig_line)
+
+
+
+################################   6  MAP VISUALISATION
+    
 
 import streamlit as st
 import pandas as pd
@@ -621,179 +692,53 @@ mysql_db = mysql.connector.connect(
 # Create a MySQL cursor
 mysql_cursor = mysql_db.cursor()
 
-# Streamlit App
-st.title("PhonePe Analytics Dashboard")
-
-# Create buttons for each category
-selected_category = st.selectbox("Select Category", ["AGGREGATED TRANSACTION", "AGGREGATED USER", "MAP TRANSACTION", "MAP USER", "TOP TRANSACTION", "TOP USER"])
-
-# Create dropdown for selecting year
-selected_year = st.selectbox("Select Year", list(range(2018, 2025)))
-
-# Create dropdown for selecting quarter
-selected_quarter = st.selectbox("Select Quarter", [1, 2, 3, 4])
-
-# Function to fetch data from MySQL based on category, year, and quarter
-def fetch_data(category, year, quarter):
-    query = f"SELECT * FROM {category.replace(' ', '_')} WHERE Year = {year} AND Quarter = {quarter}"
-    
-    # Execute the query
+# Function to fetch data from MySQL for a specific table and return a DataFrame
+def fetch_mysql_data(table_name, column_name):
+    query = f"SELECT state, {column_name} FROM {table_name}"
     mysql_cursor.execute(query)
-
-    # Fetch all the rows
     data = mysql_cursor.fetchall()
-
-    # Create a DataFrame from the fetched data
-    df = pd.DataFrame(data, columns=[desc[0] for desc in mysql_cursor.description])
-
+    columns = [desc[0] for desc in mysql_cursor.description]
+    df = pd.DataFrame(data, columns=columns)
     return df
 
-# Display data and create Plotly chart based on the selected category
-st.subheader(f"{selected_category} Data")
-
-# Select only the top 10 rows for display
-data_display = fetch_data(selected_category, selected_year, selected_quarter).head(10)
-st.write(data_display)
-
-# Create Plotly charts based on the selected category
-fig_bar = None
-fig_pie = None
-
-if not data_display.empty:
-    st.subheader(f"{selected_category} Charts")
-    
-    if selected_category == "AGGREGATED TRANSACTION":
-        fig_bar = px.bar(data_display, x="Transaction_type", y="Transaction_count", color="Transaction_type", title="Transaction Count by Type")
-        fig_pie = px.pie(data_display, names="Transaction_type", values="Transaction_count", title="Transaction Count Distribution by Type")
-    
-    elif selected_category == "AGGREGATED USER":
-        fig_bar = px.bar(data_display, x="Brands", y="Count", color="Brands", title="User Distribution by Brands")
-        fig_pie = px.pie(data_display, names="Brands", values="Count", title="User Distribution by Brands")
-    
-    elif selected_category == "MAP TRANSACTION":
-        fig_bar = px.bar(data_display, x="State", y="Amount", color="State", title="Transaction Amount by State on India Map")
-        fig_pie = px.pie(data_display, names="State", values="Amount", title="Transaction Amount Distribution by State")
-    
-    elif selected_category == "MAP USER":
-        fig_bar = px.bar(data_display, x="State", y="AppOpens", color="State", title="App Opens by State on India Map")
-        fig_pie = px.pie(data_display, names="State", values="AppOpens", title="App Opens Distribution by State")
-    
-    elif selected_category == "TOP TRANSACTION":
-        fig_bar = px.bar(data_display, x="Pincode", y="Transaction_count", color="Pincode", title="Transaction Count by Pincode")
-        fig_pie = px.pie(data_display, names="Pincode", values="Transaction_count", title="Transaction Count Distribution by Pincode")
-    
-    elif selected_category == "TOP USER":
-        fig_bar = px.bar(data_display, x="Pincode", y="RegisteredUsers", color="Pincode", title="Registered Users Count by Pincode")
-        fig_pie = px.pie(data_display, names="Pincode", values="RegisteredUsers", title="Registered Users Distribution by Pincode")
-
-# Display the Bar Chart
-if fig_bar is not None:
-    st.subheader(f"{selected_category} Bar Chart")
-    st.plotly_chart(fig_bar)
-
-# Create a button for the pie chart
-if st.button("Show Pie Chart"):
-    st.subheader(f"{selected_category} Pie Chart")
-    
-    if fig_pie is not None:
-        st.plotly_chart(fig_pie)
-
-# Close the MySQL connection
-mysql_db.close()
-
-
-
-###############################
-
-
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-
-# Sample data (replace this with your actual state-wise data)
+# Define the list of state names
 state_data = {
     "State": ["Andaman & Nicobar", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh",
               "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa", "Gujarat", "Haryana",
               "Himachal Pradesh", "Jammu & Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Madhya Pradesh",
               "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab",
-              "Rajasthan", "Sikkim", "Telangana", "Tripura", "Uttarakhand", "Uttar Pradesh", "West Bengal"],
-    
-    "Total amount": [8.69562, 6.25415, 4.20250, 1.060142, 2.82952, 164, 2.92721, 9.5947, 7.32405, 6.36777, 5.71923,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Lowest amount": [7.845307, 4.213866, 1.525072, 2.060142, 9.65343, 164, 5.004404, 8.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Highest amount": [3.845307, 4.213866, 3.525072, 9.060142, 2.65343, 164, 1.004404, 8.310501, 3.920985, 2.56780, 4.33445,
-                     0.47033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Lowest Transaction amount": [4.845307, 9.213866, 4.525072, 1.060142, 1.65343, 164, 1.004404, 4.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Totalapp open": [1.845307, 2.213866, 4.525072, 4.060142, 9.65343, 164, 1.004404, 2.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Lowest Transaction count": [3.845307, 9.213866, 4.525072, 9.060142, 4.65343, 164, 9.004404, 1.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Highest Transaction count": [6.845307, 7.213866, 1.525072, 1.060142, 1.65343, 164, 4.004404, 8.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Average Transaction amount": [1.845307, 1.213866, 4.525072, 1.060142, 1.65343, 164, 2.004404, 8.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
-    
-    "Average Transaction count": [3.845307, 5.213866, 4.525072, 1.060142, 7.65343, 164, 8.004404, 9.310501, 3.920985, 2.56780, 4.33445,
-                     0.247033, 0.214392, 0.5488, 2069, 30661, 176, 5562, 114947, 0.5678, 309, 112, 525, 4436, 774, 2587,
-                     6666, 0.4455, 46717, 13327, 676, 937, 15720, 13679],
+              "Rajasthan", "Sikkim", "Telangana", "Tripura", "Uttarakhand", "Uttar Pradesh", "West Bengal"]
 }
-
-df_state = pd.DataFrame(state_data)
 
 # Streamlit App
 def main():
     st.title("Choropleth Map Visualization")
 
-    # Get the selected question from the user
-    questions = [
-        "Q1: Total amount",
-        "Q2: Lowest amount",
-        "Q3: Highest amount",
-        "Q4: Lowest Transaction amount",
-        "Q5: Totalapp open",
-        "Q6: Lowest Transaction count",
-        "Q7: Highest Transaction count",
-        "Q8: Average Transaction amount",
-        "Q9: Average Transaction count",
-        "Q10: Average Totalapp open count",  # Replace the custom question with a new one
-    ]
+    # Define the table names and their corresponding column names
+    tables = {
+        "aggregated_transaction": "transaction_amount",
+        "aggregated_user": "brands",
+        "map_transaction": "amount",
+        "map_user": "registereduser",
+        "top_transaction": "transaction_amount",
+        "top_user": "registeredusers"
+    }
 
-    selected_question = st.sidebar.selectbox("Choose a Question", questions)
+    # Create buttons for each question
+    selected_question = st.sidebar.radio("Choose a Question", list(tables.keys()))
 
-    # Display the selected question
-    st.header(selected_question)
+    # Fetch data from MySQL for the selected question
+    df_states = pd.DataFrame(state_data)
+    df_table = fetch_mysql_data(selected_question, tables[selected_question])
+    df_states[selected_question.capitalize()] = df_table[tables[selected_question]]
 
     # Display the data table
     st.write("Data Table:")
-    if selected_question != questions[-1]:  # Check if the selected question is not the custom question
-        st.write(df_state[["State", selected_question.split(":")[1].strip()]])
-    else:
-        # Custom question logic goes here
-        custom_column_name = "Average Totalapp open count"
-        df_state[custom_column_name] = df_state["Totalapp open"].mean()
-        st.write(df_state[["State", custom_column_name]])
+    st.write(df_states)
 
     # Choropleth map for the selected question
-    fig = create_choropleth(df_state, selected_question.split(":")[1].strip(), f'Choropleth Map - {selected_question}')
-    # Display the map
-    st.write("Choropleth Map:")
+    fig = create_choropleth(df_states, selected_question.capitalize(), f'Choropleth Map - {selected_question.capitalize()}')
+    st.write(f"Choropleth Map - {selected_question.capitalize()}:")
     st.plotly_chart(fig)
 
 def create_choropleth(df, color_column, title):
@@ -813,4 +758,3 @@ def create_choropleth(df, color_column, title):
 
 if __name__ == "__main__":
     main()
-
